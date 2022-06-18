@@ -19,9 +19,23 @@ use core::{
 };
 
 /// A pointer type for heap allocation.
-pub struct Box<T>(*mut T);
+pub struct Box<T: ?Sized>(*mut T);
 
 impl<T> Box<T> {
+    /// Unimplemented, use [`BoxStore`].
+    #[inline]
+    pub fn new(_: T) -> Self {
+        unimplemented!()
+    }
+    
+    /// Unimplemented, use [`BoxStore`].
+    #[inline]
+    pub fn pin(_: T) -> Pin<Self> {
+        unimplemented!()
+    }
+}
+
+impl<T: ?Sized> Box<T> {
     /// Construct `Box` from pointer
     #[inline]
     pub const unsafe fn from_raw(raw: *mut T) -> Self {
@@ -47,35 +61,43 @@ impl<T> Box<T> {
     }
 }
 
-impl<T> Borrow<T> for Box<T> {
+impl<F: ?Sized + core::future::Future + Unpin> core::future::Future for Box<F> {
+    type Output = F::Output;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> core::task::Poll<Self::Output> {
+        F::poll(Pin::new(&mut *self), cx)
+    }
+}
+
+impl<T: ?Sized> Borrow<T> for Box<T> {
     #[inline]
     fn borrow(&self) -> &T {
         &*self
     }
 }
 
-impl<T> BorrowMut<T> for Box<T> {
+impl<T: ?Sized> BorrowMut<T> for Box<T> {
     #[inline]
     fn borrow_mut(&mut self) -> &mut T {
         &mut *self
     }
 }
 
-impl<T> AsRef<T> for Box<T> {
+impl<T: ?Sized> AsRef<T> for Box<T> {
     #[inline]
     fn as_ref(&self) -> &T {
         &*self
     }
 }
 
-impl<T> AsMut<T> for Box<T> {
+impl<T: ?Sized> AsMut<T> for Box<T> {
     #[inline]
     fn as_mut(&mut self) -> &mut T {
         &mut *self
     }
 }
 
-impl<T> Deref for Box<T> {
+impl<T: ?Sized> Deref for Box<T> {
     type Target = T;
 
     #[inline]
@@ -84,7 +106,7 @@ impl<T> Deref for Box<T> {
     }
 }
 
-impl<T> DerefMut for Box<T> {
+impl<T: ?Sized> DerefMut for Box<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut T {
         unsafe { &mut *self.0 }
@@ -97,7 +119,7 @@ pub struct BoxStore<T>(UnsafeCell<MaybeUninit<T>>, AtomicBool);
 unsafe impl<T> Sync for BoxStore<T> {}
 
 impl<T> BoxStore<T> {
-    /// Create a new `ArcStore`
+    /// Create a new `BoxStore`
     #[inline]
     pub const fn new() -> Self {
         Self(
@@ -141,6 +163,14 @@ impl<T> BoxStore<T> {
     }
 }
 
+impl<T> Drop for BoxStore<T> {
+    fn drop(&mut self) {
+        if self.1.load(Ordering::SeqCst) {
+            unsafe { core::ptr::drop_in_place(self.0.get()) };
+        }
+    }
+}
+
 /// A place to store a fake "heap" that can allocate for one `Arc`.
 pub struct ArcStore<T>(UnsafeCell<MaybeUninit<ArcInner<T>>>, AtomicBool);
 
@@ -149,7 +179,7 @@ unsafe impl<T> Sync for ArcStore<T> {}
 impl<T> ArcStore<T> {
     /// Create a new `ArcStore`
     #[inline]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self(
             UnsafeCell::new(MaybeUninit::uninit()),
             AtomicBool::new(false),
@@ -198,15 +228,29 @@ impl<T> ArcStore<T> {
     }
 }
 
+impl<T: core::fmt::Debug + ?Sized> core::fmt::Debug for Box<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(&**self, f)
+    }
+}
+
+impl<T> Drop for ArcStore<T> {
+    fn drop(&mut self) {
+        if self.1.load(Ordering::SeqCst) {
+            unsafe { core::ptr::drop_in_place(self.0.get()) };
+        }
+    }
+}
+
 struct ArcInner<T: ?Sized> {
     count: AtomicUsize,
     data: UnsafeCell<T>,
 }
 
 /// Atomically reference-counted pointer
-pub struct Arc<T>(*const ArcInner<T>);
+pub struct Arc<T: ?Sized>(*const ArcInner<T>);
 
-impl<T> Arc<T> {
+impl<T: ?Sized> Arc<T> {
     /// Get the number of `Arc`s
     #[inline]
     #[must_use]
@@ -221,6 +265,20 @@ impl<T> Arc<T> {
         this.0 == other.0
     }
 
+    /// Leak the `Arc`
+    #[inline]
+    pub fn leak<'a>(this: Self) -> &'a T {
+        unsafe { &*(*this.0).data.get() }
+    }
+}
+
+impl<T> Arc<T> {
+    /// Unimplemented, use [`ArcStore`].
+    #[inline]
+    pub fn new(_: T) -> Self {
+        unimplemented!()
+    }
+    
     /// Fake a `Clone` on a raw arc
     #[inline]
     pub unsafe fn increment_count(ptr: *const ()) {
@@ -249,29 +307,23 @@ impl<T> Arc<T> {
         core::mem::forget(this);
         ptr.cast()
     }
-
-    /// Leak the `Arc`
-    #[inline]
-    pub fn leak<'a>(this: Self) -> &'a T {
-        unsafe { &*(*this.0).data.get() }
-    }
 }
 
-impl<T> Borrow<T> for Arc<T> {
+impl<T: ?Sized> Borrow<T> for Arc<T> {
     #[inline]
     fn borrow(&self) -> &T {
         &*self
     }
 }
 
-impl<T> AsRef<T> for Arc<T> {
+impl<T: ?Sized> AsRef<T> for Arc<T> {
     #[inline]
     fn as_ref(&self) -> &T {
         &*self
     }
 }
 
-impl<T> Deref for Arc<T> {
+impl<T: ?Sized> Deref for Arc<T> {
     type Target = T;
 
     #[inline]
@@ -280,7 +332,7 @@ impl<T> Deref for Arc<T> {
     }
 }
 
-impl<T> Clone for Arc<T> {
+impl<T: ?Sized> Clone for Arc<T> {
     #[inline]
     fn clone(&self) -> Arc<T> {
         const MAX: usize = (isize::MAX) as usize;
@@ -293,7 +345,13 @@ impl<T> Clone for Arc<T> {
     }
 }
 
-impl<T> Drop for Arc<T> {
+impl<T: ?Sized + core::fmt::Debug> core::fmt::Debug for Arc<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(&**self, f)
+    }
+}
+
+impl<T: ?Sized> Drop for Arc<T> {
     #[inline]
     fn drop(&mut self) {
         unsafe { (*self.0).count.fetch_sub(1, Ordering::Release) };
@@ -301,7 +359,7 @@ impl<T> Drop for Arc<T> {
 }
 
 /// Trait for safely implementing a [`Waker`]
-pub trait Wake: Sized {
+pub trait Wake {
     /// Wake this task.
     fn wake(this: Arc<Self>);
 

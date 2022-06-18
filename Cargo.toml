@@ -2,6 +2,15 @@
 name = "faux_alloc"
 version = "0.1.0"
 edition = "2021"
+description = "A fake 'allocator'"
+license = "Apache-2.0 OR BSL-1.0 OR MIT"
+documentation = "https://docs.rs/faux_alloc"
+homepage = "https://github.com/ardaku/faux_alloc/blob/stable/CHANGELOG.md"
+repository = "https://github.com/ardaku/faux_alloc/"
+include = ["Cargo.toml", "src/", "examples/", "README.md"]
+keywords = ["allocator", "custom", "alloc", "small", "minimal"]
+categories = ["no-std", "embedded", "memory-management"]
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
